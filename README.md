@@ -11,8 +11,19 @@ are no dependencies, except it assumes little endian arch and won't work properl
 # usage
 The makefile builds a standalone executable that can read and resample wav format files in 8 bit, 16 bit, or 
 IEEE 32-bit float formats. I have not tested speed on older machines, but on my laptop with an Intel Core i5-12450H
-CPU, I get resampling in about ~25x realtime (2 channels, 16 bit). Resampling quality is excellent, and I can't
-tell the difference in A/B switch live using Tenacity.
+CPU, I get resampling in about:
+ - ~25x realtime - 2 channels, 16 bit, 44100 to 48000
+ - ~13x realtime - 2 channels, 16 bit, 44100 to 96000
+ - ~14x realtime - 2 channels, 16 bit, 44100 to 22050
+So it seems efficiency will very quite a bit depending on the conversion needed. Resampling quality is excellent, and I can't tell the difference in A/B switch live using Tenacity.
+
+The mwav.h header supports PHYSFS, if you define WAV_USE_PHYSFS before including the header.
+
+You can remove the wav stuff entirely by defining SWEEPS_NO_MWAV before including the header.
+
+# todo
+More testing, I wrote in float to float resampling but it is untested. Also I want to support resampling of streams, passing in
+buffer chunks, so that's on the list. That is about it.
 
 # glitch.wav
 This little sample audio is from wikimedia commons: [glitch](https://commons.wikimedia.org/wiki/File:Audionautix-com-ccby-glitch.mp3)
