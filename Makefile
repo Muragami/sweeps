@@ -107,7 +107,7 @@ mac: $(MOBJS)
 win: $(WOBJS)
 	$(eval LDFLAGS=$(WLDFLAGS))
 	$(info -----)
-	$(CC) $(WOBJS) -o $(WBUILD_DIR)/sweeps.exe $(LDFLAGS)
+	$(CC) $(WOBJS) -o $(WBUILD_DIR)/sweeps.exe /ucrt64/lib/libwinpthread.a $(LDFLAGS)
 
 clean:
 	$(RM) -r $(CLEAN_DIR)
