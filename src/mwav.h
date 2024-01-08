@@ -75,6 +75,9 @@ typedef struct _wavSound {
 typedef struct _wavConvertBuffer {
 	uint8_t c[CBUFFER_MBYTES];
 } wavConvertBuffer;
+typedef struct _wavConvertBuffer32 {
+	int32_t c[CBUFFER_CNT];
+} wavConvertBuffer32;
 
 typedef void* (*xmalloc)(size_t x);
 
@@ -183,8 +186,8 @@ static const char* __attribute__((unused)) wavLoadFile(const char *filename, wav
 			if (chunkHeader.size < sizeof(fmtData)) WAV_FAIL("Badly formatted 'fmt ' chunk")
 			if (fread(&fmtData, 1, sizeof(fmtData), fp) != sizeof(fmtData)) WAV_FAIL("Failed to read 'fmt_' chunk")
 			if (fmtData.formatTag != 1) WAV_FAIL("File is not PCM")
-			if (!(fmtData.bitsPerSample == 16 || fmtData.bitsPerSample == 8 || fmtData.bitsPerSample == 24))
-				WAV_FAIL("File is unsupported bits per sample.")
+			if (!(fmtData.bitsPerSample == 16 || fmtData.bitsPerSample == 8 || fmtData.bitsPerSample == 24
+				|| fmtData.bitsPerSample == 32)) WAV_FAIL("File is unsupported bits per sample.")
 			snd->channels = fmtData.channels;
 			snd->sampleRate = fmtData.sampleRate;
 			snd->bitsPerSample = fmtData.bitsPerSample;
@@ -192,7 +195,7 @@ static const char* __attribute__((unused)) wavLoadFile(const char *filename, wav
 		{
 			if (snd->bitsPerSample == 24) {
 				snd->data.numBytes = (uint64_t)chunkHeader.size * 4ll / 3ll;
-				snd->data.bytes = (unsigned char *)xm(snd->data.numBytes);
+				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
 				float *f = (float*)snd->data.bytes;
 				wavConvertBuffer b;
 				while (chunkHeader.size > 0) {
@@ -206,6 +209,22 @@ static const char* __attribute__((unused)) wavLoadFile(const char *filename, wav
 					}
 					chunkHeader.size -= cnt;
 				}
+			} else if (snd->bitsPerSample == 32) {
+				snd->data.numBytes = chunkHeader.size;
+				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
+				float *f = (float*)snd->data.bytes;
+				wavConvertBuffer32 b;
+				while (chunkHeader.size > 0) {
+					int cnt;
+					if (chunkHeader.size > CBUFFER_MBYTES) cnt = CBUFFER_MBYTES;
+					 else cnt = chunkHeader.size;
+					if (fread(b.c, 1, cnt, fp) != cnt) WAV_FAIL("Failed to read data.")
+					for (int i = 0; i < cnt / 4; i++) {
+						*f = (float)b.c[i] / 2147483648.0f;
+						f++;
+					}
+					chunkHeader.size -= cnt;
+				}				
 			} else {
 				snd->data.bytes = (unsigned char *)xm(chunkHeader.size);
 				chunkHeader.size = fread(snd->data.bytes, 1, chunkHeader.size, fp);
@@ -243,7 +262,7 @@ static const char* __attribute__((unused)) wavSaveMemory(const char *filename, w
 
 	WRITE_FOURCC(head.fmt_Header.id, "fmt ");
 	head.fmt_Header.size = 16;
-	head.fmt_Data.formatTag = snd->bitsPerSample == 32 ? 3 : 1;
+	head.fmt_Data.formatTag = 1;
 	head.fmt_Data.channels = snd->channels;
 	head.fmt_Data.sampleRate = snd->sampleRate;
 	head.fmt_Data.avgBytesPerSec = snd->sampleRate * snd->channels * snd->bitsPerSample / 8;
@@ -323,7 +342,7 @@ static const char* __attribute__((unused)) wavSavePFile(const char *filename, wa
 
 	WRITE_FOURCC(head.fmt_Header.id, "fmt ");
 	head.fmt_Header.size = 16;
-	head.fmt_Data.formatTag = snd->bitsPerSample == 32 ? 3 : 1;
+	head.fmt_Data.formatTag = 1;
 	head.fmt_Data.channels = snd->channels;
 	head.fmt_Data.sampleRate = snd->sampleRate;
 	head.fmt_Data.avgBytesPerSec = snd->sampleRate * snd->channels * snd->bitsPerSample / 8;

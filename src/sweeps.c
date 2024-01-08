@@ -465,7 +465,7 @@ void swsResampleSndF(wavSound *in, wavSound* out, int32_t freq, void* (*xmalloc)
 }
 
 void swsResampleSnd(wavSound *in, wavSound* out, int32_t freq, void* (*xmalloc)(size_t)) {
-	if (in->bitsPerSample == 24)
+	if (in->bitsPerSample == 24 || in->bitsPerSample == 32)
 		swsResampleSndF(in, out, freq, xmalloc);
 	else if (in->bitsPerSample == 16)
 		swsResampleSnd16(in, out, freq, xmalloc);
