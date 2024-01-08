@@ -22,6 +22,8 @@ You can remove the wav stuff entirely by defining SWEEPS_NO_MWAV before includin
 # todo
 More testing, I wrote in float to float resampling but it is untested. Also I want to support resampling of streams, passing in buffer chunks, so that's on the list. That is about it.
 
-# glitch.wav
+# glitchXX.wav
 This little sample audio is from wikimedia commons: [glitch](https://commons.wikimedia.org/wiki/File:Audionautix-com-ccby-glitch.mp3)
 and has the license: *Created by Jason Shaw. Released under Creative Commons Attribution License 3.0. Required credit: "music by audionautix.com". A signed release form is available at http://audionautix.com, CC BY 3.0 <https://creativecommons.org/licenses/by/3.0>, via Wikimedia Commons*
+
+The glitch16.wav is 16-bit and the glitch24.wav is 24-bit PCM audio versions (used for testing 24 bit read/write and conversion to and from float).
