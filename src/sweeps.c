@@ -461,11 +461,11 @@ void swsResampleSndF(wavSound *in, wavSound* out, int32_t freq, void* (*xmalloc)
 	out->data.numBytes = bout.size;
 	out->sampleRate = freq;
 	out->channels = in->channels;
-	out->bitsPerSample = 16;
+	out->bitsPerSample = in->bitsPerSample;
 }
 
 void swsResampleSnd(wavSound *in, wavSound* out, int32_t freq, void* (*xmalloc)(size_t)) {
-	if (in->bitsPerSample == 32)
+	if (in->bitsPerSample == 24)
 		swsResampleSndF(in, out, freq, xmalloc);
 	else if (in->bitsPerSample == 16)
 		swsResampleSnd16(in, out, freq, xmalloc);
@@ -572,7 +572,7 @@ void swsConvertSnd8(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(
 
 void swsConvertSnd(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(size_t)) {
 	if (xmalloc == NULL) xmalloc = malloc;
-	if (in->bitsPerSample == 32)
+	if (in->bitsPerSample == 32 || in->bitsPerSample == 24)
 		swsConvertSndF(in, out, bits, xmalloc);
 	else if (in->bitsPerSample == 16)
 		swsConvertSnd16(in, out, bits, xmalloc);

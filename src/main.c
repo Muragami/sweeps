@@ -41,11 +41,10 @@ int main(int argc, const char **argv) {
 			printf("invalid frequency: %s", argv[3]);
 			return -1;
 		}
-		if (!(wIn.bitsPerSample == 16 || wIn.bitsPerSample == 32)) {
-			printf("invalid input bitdepth: %d", wIn.bitsPerSample);
-			return -1;
-		}
-		samples = (double)wIn.data.numBytes / (double)(wIn.channels * (wIn.bitsPerSample >> 3));
+		if (wIn.bitsPerSample == 24) 
+			samples = (double)wIn.data.numBytes / (double)(wIn.channels * 4);
+		 else 
+			samples = (double)wIn.data.numBytes / (double)(wIn.channels * (wIn.bitsPerSample >> 3));
 		len = samples / (double)wIn.sampleRate;
 		printf("converting %.0f samples (%.2f seconds).\n", samples, len);
 		start = getTime();

@@ -7,7 +7,10 @@
 		* PHYSFS (if WAV_USE_PHYSFS is defined before inclusion)
 	
 	only accepts/handles:
-		8 or 16 bit PCM and 32-bit IEEE float uncompressed files
+		8, 16, 24^, and 32^ bit PCM only
+
+		^internally 24 and 32 bit is turned into normalized IEEE float
+		- this means some small data loss on 32 bit PCM input FWIW
 
 	muragami, muragami@wishray.com, Jason A. Petrasko 2024
 	MIT license: https://opensource.org/license/mit/
@@ -66,6 +69,13 @@ typedef struct _wavSound {
 	int32_t bitsPerSample;
 } wavSound;
 
+#define CBUFFER_CNT 	(1024)
+#define CBUFFER_BYTES 	(1024 * 3)
+#define CBUFFER_MBYTES 	(1024 * 4)
+typedef struct _wavConvertBuffer {
+	uint8_t c[CBUFFER_MBYTES];
+} wavConvertBuffer;
+
 typedef void* (*xmalloc)(size_t x);
 
 // ******************************************************************************
@@ -82,19 +92,61 @@ static const char* __attribute__((unused)) wavSaveFile(const char *filename, wav
 
 	WRITE_FOURCC(head.fmt_Header.id, "fmt ");
 	head.fmt_Header.size = 16;
-	head.fmt_Data.formatTag = 1; // Microsoft PCM format
+	head.fmt_Data.formatTag = 1;
 	head.fmt_Data.channels = snd->channels;
 	head.fmt_Data.sampleRate = snd->sampleRate;
 	head.fmt_Data.avgBytesPerSec = snd->sampleRate * snd->channels * snd->bitsPerSample / 8;
-	head.fmt_Data.blockAlign = snd->bitsPerSample / 2;
+	head.fmt_Data.blockAlign = (snd->bitsPerSample >> 3) * snd->channels;
 	head.fmt_Data.bitsPerSample = snd->bitsPerSample;
 
 	WRITE_FOURCC(head.dataHeader.id, "data");
-	head.dataHeader.size = snd->data.numBytes;
+	if (snd->bitsPerSample == 24) 
+		head.dataHeader.size = (uint64_t)snd->data.numBytes * 3ll / 4ll;
+	 else 
+	 	head.dataHeader.size = snd->data.numBytes;
 
 	if (!(fp = fopen(filename, "wb"))) WAV_FAIL("Failed to open file")
 	if (fwrite((unsigned char *)&head, 1, sizeof(head), fp) != sizeof(head)) WAV_FAIL("Failed to write header")
-	if (fwrite(snd->data.bytes, 1, snd->data.numBytes, fp) != snd->data.numBytes) WAV_FAIL("Failed to write data")
+	if (snd->bitsPerSample == 24) {
+		wavConvertBuffer b;
+		uint32_t samples = snd->data.numBytes >> 2;
+		float *f = (float*)snd->data.bytes;
+		while (samples > 0) {
+			int32_t cnt;
+			if (samples > CBUFFER_CNT) cnt = CBUFFER_CNT;
+			 else cnt = samples;
+			for (int i = 0; i < cnt; i++) {
+				int32_t v = (*f * 2147483648.0f);
+				b.c[i * 3] = (v & 0xFF00) >> 8;
+				b.c[i * 3 + 1] = (v & 0xFF0000) >> 16;
+				b.c[i * 3 + 2] = (v & 0xFF000000) >> 24;
+				f++;
+			}
+			samples -= cnt;
+			if (fwrite(b.c, 1, cnt * 3, fp) != cnt * 3) WAV_FAIL("Failed to write data")
+		}
+		// uneven bytes written? add one null
+		if ((snd->data.numBytes / (4 * snd->channels) * (snd->bitsPerSample >> 3) * snd->channels) % 2 > 0)
+			fputc('\000', fp);
+	} else if (snd->bitsPerSample == 32) {
+		wavConvertBuffer b;
+		uint32_t samples = snd->data.numBytes >> 2;
+		float *f = (float*)snd->data.bytes;
+		while (samples > 0) {
+			int32_t cnt;
+			if (samples > CBUFFER_CNT) cnt = CBUFFER_CNT;
+			 else cnt = samples;
+			for (int i = 0; i < cnt; i++) {
+				int32_t v = (*f * 2147483648.0f);
+				memcpy(b.c + i * 4, &v, 4);
+				f++;
+			}
+			samples -= cnt;
+			if (fwrite(b.c, 1, cnt * 4, fp) != cnt * 4) WAV_FAIL("Failed to write data")
+		}
+	} else {
+		if (fwrite(snd->data.bytes, 1, snd->data.numBytes, fp) != snd->data.numBytes) WAV_FAIL("Failed to write data")
+	}
 	
 	fclose(fp);
 	return err;
@@ -130,17 +182,36 @@ static const char* __attribute__((unused)) wavLoadFile(const char *filename, wav
 
 			if (chunkHeader.size < sizeof(fmtData)) WAV_FAIL("Badly formatted 'fmt ' chunk")
 			if (fread(&fmtData, 1, sizeof(fmtData), fp) != sizeof(fmtData)) WAV_FAIL("Failed to read 'fmt_' chunk")
-			if (!(fmtData.formatTag == 1 || fmtData.formatTag == 3)) WAV_FAIL("File is not PCM")
-			if (fmtData.formatTag == 3 && fmtData.bitsPerSample != 32) WAV_FAIL("File is not 32-bit floating point.")
-			if (fmtData.formatTag == 1 && fmtData.bitsPerSample > 16) WAV_FAIL("File is not 8 or 16-bit PCM.")
+			if (fmtData.formatTag != 1) WAV_FAIL("File is not PCM")
+			if (!(fmtData.bitsPerSample == 16 || fmtData.bitsPerSample == 8 || fmtData.bitsPerSample == 24))
+				WAV_FAIL("File is unsupported bits per sample.")
 			snd->channels = fmtData.channels;
 			snd->sampleRate = fmtData.sampleRate;
 			snd->bitsPerSample = fmtData.bitsPerSample;
 		} else if (MATCH_FOURCC(chunkHeader.id, "data"))
 		{
-			snd->data.bytes = (unsigned char *)xm(chunkHeader.size);
-			chunkHeader.size = fread(snd->data.bytes, 1, chunkHeader.size, fp);
-			snd->data.numBytes = chunkHeader.size;
+			if (snd->bitsPerSample == 24) {
+				snd->data.numBytes = (uint64_t)chunkHeader.size * 4ll / 3ll;
+				snd->data.bytes = (unsigned char *)xm(snd->data.numBytes);
+				float *f = (float*)snd->data.bytes;
+				wavConvertBuffer b;
+				while (chunkHeader.size > 0) {
+					int cnt;
+					if (chunkHeader.size > CBUFFER_BYTES) cnt = CBUFFER_BYTES;
+					 else cnt = chunkHeader.size;
+					if (fread(b.c, 1, cnt, fp) != cnt) WAV_FAIL("Failed to read data.")
+					for (int i = 0; i < cnt / 3; i++) {
+						*f = ((b.c[i * 3] << 8) + (b.c[i * 3 + 1] << 16) + (b.c[i * 3 + 2] << 24)) / 2147483648.0f;
+						f++;
+					}
+					chunkHeader.size -= cnt;
+				}
+			} else {
+				snd->data.bytes = (unsigned char *)xm(chunkHeader.size);
+				chunkHeader.size = fread(snd->data.bytes, 1, chunkHeader.size, fp);
+				snd->data.numBytes = chunkHeader.size;	
+			}
+			
 		}
 
 		fseek(fp, endPos, SEEK_SET);
@@ -172,7 +243,7 @@ static const char* __attribute__((unused)) wavSaveMemory(const char *filename, w
 
 	WRITE_FOURCC(head.fmt_Header.id, "fmt ");
 	head.fmt_Header.size = 16;
-	head.fmt_Data.formatTag = 1; // Microsoft PCM format
+	head.fmt_Data.formatTag = snd->bitsPerSample == 32 ? 3 : 1;
 	head.fmt_Data.channels = snd->channels;
 	head.fmt_Data.sampleRate = snd->sampleRate;
 	head.fmt_Data.avgBytesPerSec = snd->sampleRate * snd->channels * snd->bitsPerSample / 8;
@@ -252,7 +323,7 @@ static const char* __attribute__((unused)) wavSavePFile(const char *filename, wa
 
 	WRITE_FOURCC(head.fmt_Header.id, "fmt ");
 	head.fmt_Header.size = 16;
-	head.fmt_Data.formatTag = 1; // Microsoft PCM format
+	head.fmt_Data.formatTag = snd->bitsPerSample == 32 ? 3 : 1;
 	head.fmt_Data.channels = snd->channels;
 	head.fmt_Data.sampleRate = snd->sampleRate;
 	head.fmt_Data.avgBytesPerSec = snd->sampleRate * snd->channels * snd->bitsPerSample / 8;
