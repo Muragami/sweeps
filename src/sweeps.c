@@ -126,6 +126,100 @@ static inline void sinc_resample_createLut(int32_t inFreq, int32_t cutoffFreq2, 
 	}
 }
 
+static inline void sinc_resample8_internal(uint8_t *wavOut, int32_t sizeOut, int32_t outFreq, 
+						const uint8_t *wavIn, int32_t sizeIn, int32_t inFreq, int32_t cutoffFreq2,
+						int32_t numChannels, int32_t windowSize, double beta) {
+	float y[windowSize * numChannels];
+	const uint8_t *sampleIn, *wavInEnd = wavIn + (sizeIn / 2);
+	uint8_t *sampleOut, *wavOutEnd = wavOut + (sizeOut / 2);
+	float outPeriod;
+	int subpos = 0;
+	int gcd = calc_gcd(inFreq, outFreq);
+	int i, c, next;
+	float dither[numChannels];
+
+	sinc_resample_createLut(inFreq, cutoffFreq2, windowSize, beta);
+
+	inFreq /= gcd;
+	outFreq /= gcd;
+	outPeriod = 1.0f / outFreq;
+
+	for (c = 0; c < numChannels; c++)
+		dither[c] = 0.0f;
+
+	for (i = 0; i < windowSize / 2 - 1; i++)
+	{
+		for (c = 0; c < numChannels; c++)
+			y[i * numChannels + c] = 0;
+	}
+
+	sampleIn = wavIn;
+	for (; i < windowSize; i++)
+	{
+		for (c = 0; c < numChannels; c++)
+			y[i * numChannels + c] = (sampleIn < wavInEnd) ? *sampleIn++ : 0;
+	}
+
+	sampleOut = wavOut;
+	next = 0;
+	while (sampleOut < wavOutEnd)
+	{
+		float samples[numChannels];
+		float offset = 1.0f - subpos * outPeriod;
+		float interp;
+		lutEntry_t *lutPart;
+		int index;
+
+		for (c = 0; c < numChannels; c++)
+			samples[c] = 0.0f;
+
+		interp = offset * (RESAMPLE_LUT_STEP - 1);
+		index = interp;
+		interp -= index;
+		lutPart = dynamicLut + index * windowSize;
+
+		for (i = next; i < windowSize; i++, lutPart++)
+		{
+			float scale = lutPart->value + lutPart->delta * interp;
+
+			for (c = 0; c < numChannels; c++)
+				samples[c] += y[i * numChannels + c] * scale;
+		}
+
+		for (i = 0; i < next; i++, lutPart++)
+		{
+			float scale = lutPart->value + lutPart->delta * interp;
+
+			for (c = 0; c < numChannels; c++)
+				samples[c] += y[i * numChannels + c] * scale;
+		}
+
+		for (c = 0; c < numChannels; c++)
+		{
+			float r = roundf(samples[c] + dither[c]);
+			dither[c] += samples[c] - r;
+
+			if (r > 127)
+				*sampleOut++ = 255;
+			else if (r < -128)
+				*sampleOut++ = 0;
+			else
+				*sampleOut++ = (uint8_t)(r + 128);
+		}
+
+		subpos += inFreq;
+		while (subpos >= outFreq)
+		{
+			subpos -= outFreq;
+
+			for (c = 0; c < numChannels; c++)
+				y[next * numChannels + c] = (sampleIn < wavInEnd) ? *sampleIn++ : 0;
+
+			next = (next + 1) % windowSize;
+		}
+	}
+}
+
 static inline void sinc_resample16_internal(int16_t *wavOut, int32_t sizeOut, int32_t outFreq, 
 						const int16_t *wavIn, int32_t sizeIn, int32_t inFreq, int32_t cutoffFreq2,
 						int32_t numChannels, int32_t windowSize, double beta) {
@@ -309,6 +403,52 @@ static inline void sinc_resampleF_internal(float *wavOut, int32_t sizeOut, int32
 	}
 }
 
+void sinc_resample8(uint8_t *wavOut, int32_t sizeOut, int32_t outFreq, const uint8_t *wavIn,
+						int32_t sizeIn, int32_t inFreq, int32_t numChannels) {
+	double sidelobeHeight = SIDELOBE_HEIGHT;
+	double transitionWidth;
+	double beta = 0.0;
+	int32_t cutoffFreq2;
+	int32_t windowSize;
+
+	// Just copy if no resampling necessary
+	if (outFreq == inFreq)
+	{
+		memcpy(wavOut, wavIn, (sizeOut < sizeIn) ? sizeOut : sizeIn);
+		return;
+	}
+
+	transitionWidth = (outFreq > inFreq) ? UP_TRANSITION_WIDTH : DOWN_TRANSITION_WIDTH;
+
+	// cutoff freq is ideally half transition width away from output freq
+	cutoffFreq2 = outFreq - transitionWidth * inFreq * 0.5;
+
+	// FIXME: Figure out why there are bad effects with cutoffFreq2 > inFreq
+	if (cutoffFreq2 > inFreq)
+		cutoffFreq2 = inFreq;
+
+	// https://www.mathworks.com/help/signal/ug/kaiser-window.html
+	if (sidelobeHeight > 50)
+		beta = 0.1102 * (sidelobeHeight - 8.7);
+	else if (sidelobeHeight >= 21)
+		beta = 0.5842 * pow(sidelobeHeight - 21.0, 0.4) + 0.07886 * (sidelobeHeight - 21.0);
+
+	windowSize = (sidelobeHeight - 8.0) / (2.285 * transitionWidth * M_PI) + 1;
+
+	if (windowSize > MAX_SINC_WINDOW_SIZE)
+		windowSize = MAX_SINC_WINDOW_SIZE;
+
+	// should compile as different paths
+	// number of channels need to be compiled as separate paths to ensure good
+	// vectorization by the compiler
+	if (numChannels == 1)
+		sinc_resample8_internal(wavOut, sizeOut, outFreq, wavIn, sizeIn, inFreq, cutoffFreq2, 1, windowSize, beta);
+	else if (numChannels == 2)
+		sinc_resample8_internal(wavOut, sizeOut, outFreq, wavIn, sizeIn, inFreq, cutoffFreq2, 2, windowSize, beta);
+	else
+		sinc_resample8_internal(wavOut, sizeOut, outFreq, wavIn, sizeIn, inFreq, cutoffFreq2, numChannels, windowSize, beta);
+}
+
 void sinc_resample16(int16_t *wavOut, int32_t sizeOut, int32_t outFreq, const int16_t *wavIn,
 						int32_t sizeIn, int32_t inFreq, int32_t numChannels) {
 	double sidelobeHeight = SIDELOBE_HEIGHT;
@@ -353,7 +493,6 @@ void sinc_resample16(int16_t *wavOut, int32_t sizeOut, int32_t outFreq, const in
 		sinc_resample16_internal(wavOut, sizeOut, outFreq, wavIn, sizeIn, inFreq, cutoffFreq2, 2, windowSize, beta);
 	else
 		sinc_resample16_internal(wavOut, sizeOut, outFreq, wavIn, sizeIn, inFreq, cutoffFreq2, numChannels, windowSize, beta);
-
 }
 
 void sinc_resampleF(float *wavOut, int32_t sizeOut, int32_t outFreq, const float *wavIn,
@@ -402,6 +541,21 @@ void sinc_resampleF(float *wavOut, int32_t sizeOut, int32_t outFreq, const float
 		sinc_resampleF_internal(wavOut, sizeOut, outFreq, wavIn, sizeIn, inFreq, cutoffFreq2, numChannels, windowSize, beta);	
 }
 
+void swsResampleSnd8(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
+	int32_t gcd = calc_gcd(freq, in->sampleRate);
+
+	if (xm == NULL) xm = malloc;
+
+	out->data.numBytes = in->data.numBytes * (int64_t)(freq / gcd) / (int64_t)(in->sampleRate / gcd);
+	out->data.bytes = xm(out->data.numBytes);
+	out->sampleRate = freq;
+	out->channels = in->channels;
+	out->bitsPerSample = 8;
+
+	sinc_resample8((uint8_t*)out->data.bytes, out->data.numBytes, out->sampleRate, (uint8_t*)in->data.bytes, 
+						in->data.numBytes, in->sampleRate, in->channels);
+}
+
 void swsResampleSnd16(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
 	int32_t gcd = calc_gcd(freq, in->sampleRate);
 
@@ -433,10 +587,18 @@ void swsResampleSndF(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
 }
 
 void swsResampleSnd(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
-	if (in->bitsPerSample == 24 || in->bitsPerSample == 32)
-		swsResampleSndF(in, out, freq, xm);
-	else if (in->bitsPerSample == 16)
-		swsResampleSnd16(in, out, freq, xm);
+	switch (in->bitsPerSample) {
+		case 32:
+		case 24:
+			swsResampleSndF(in, out, freq, xm);
+			break;
+		case 16:
+			swsResampleSnd16(in, out, freq, xm);
+			break;
+		case 8:
+			swsResampleSnd8(in, out, freq, xm);
+			break;
+	}
 }
 
 void swsConvertSndF(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
