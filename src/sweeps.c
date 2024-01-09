@@ -126,12 +126,13 @@ static inline void sinc_resample_createLut(int32_t inFreq, int32_t cutoffFreq2, 
 	}
 }
 
+#define CUINT8TOF(x)	((float)x - 128.0f)
 static inline void sinc_resample8_internal(uint8_t *wavOut, int32_t sizeOut, int32_t outFreq, 
 						const uint8_t *wavIn, int32_t sizeIn, int32_t inFreq, int32_t cutoffFreq2,
 						int32_t numChannels, int32_t windowSize, double beta) {
 	float y[windowSize * numChannels];
-	const uint8_t *sampleIn, *wavInEnd = wavIn + (sizeIn / 2);
-	uint8_t *sampleOut, *wavOutEnd = wavOut + (sizeOut / 2);
+	const uint8_t *sampleIn, *wavInEnd = wavIn + sizeIn;
+	uint8_t *sampleOut, *wavOutEnd = wavOut + sizeOut;
 	float outPeriod;
 	int subpos = 0;
 	int gcd = calc_gcd(inFreq, outFreq);
@@ -156,8 +157,10 @@ static inline void sinc_resample8_internal(uint8_t *wavOut, int32_t sizeOut, int
 	sampleIn = wavIn;
 	for (; i < windowSize; i++)
 	{
-		for (c = 0; c < numChannels; c++)
-			y[i * numChannels + c] = (sampleIn < wavInEnd) ? *sampleIn++ : 0;
+		for (c = 0; c < numChannels; c++) {
+			float v = CUINT8TOF(*sampleIn);
+			y[i * numChannels + c] = (sampleIn++ < wavInEnd) ? v : 0;
+		}
 	}
 
 	sampleOut = wavOut;
@@ -212,8 +215,10 @@ static inline void sinc_resample8_internal(uint8_t *wavOut, int32_t sizeOut, int
 		{
 			subpos -= outFreq;
 
-			for (c = 0; c < numChannels; c++)
-				y[next * numChannels + c] = (sampleIn < wavInEnd) ? *sampleIn++ : 0;
+			for (c = 0; c < numChannels; c++) {
+				float v = CUINT8TOF(*sampleIn);
+				y[next * numChannels + c] = (sampleIn++ < wavInEnd) ? v : 0;
+			}
 
 			next = (next + 1) % windowSize;
 		}
