@@ -9,31 +9,27 @@
 
 // define this if you don't want to use or have the mwav header
 #ifndef SWEEPS_NO_MWAV
-#include "mwav.h"
+	// we are using mwav, so just include that
+	#include "mwav.h"
 #else
-#include <stdint.h>
+	// no mwav, so define the basic structs we need
+	#include <stdint.h>
+
+	typedef struct _wavData {
+		uint8_t *bytes;
+		size_t numBytes;
+	} wavData;
+
+	typedef struct _wavSound {
+		wavData data;
+		int32_t channels;
+		int32_t sampleRate;
+		int32_t bitsPerSample;
+	} wavSound;
+
+	typedef void* (*xmalloc)(size_t x);
 #endif
 
-typedef struct _swsBuffer16 {
-	int16_t *samples;
-	int32_t size;
-	int32_t freq;
-	int32_t channels;
-} swsBuffer16;
+void swsResampleSnd(wavSound *in, wavSound* out, int32_t freq, xmalloc xm);
+void swsConvertSnd(wavSound *in, wavSound* out, int32_t bits, xmalloc xm);
 
-typedef struct _swsBufferF {
-	float *samples;
-	int32_t size;
-	int32_t freq;
-	int32_t channels;
-} swsBufferF;
-
-void swsResample16(swsBuffer16 in, swsBuffer16* out, int32_t freq, void* (*xmalloc)(size_t));
-void swsResampleF(swsBufferF in, swsBufferF* out, int32_t freq, void* (*xmalloc)(size_t));
-
-#ifndef SWEEPS_NO_MWAV
-
-void swsResampleSnd(wavSound *in, wavSound* out, int32_t freq, void* (*xmalloc)(size_t));
-void swsConvertSnd(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(size_t));
-
-#endif

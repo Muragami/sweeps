@@ -28,7 +28,6 @@
 #define MAX_SINC_WINDOW_SIZE 	2048
 #define RESAMPLE_LUT_STEP 		128
 
-
 typedef struct {
 	float value;
 	float delta;
@@ -221,7 +220,6 @@ static inline void sinc_resample16_internal(int16_t *wavOut, int32_t sizeOut, in
 	}
 }
 
-
 static inline void sinc_resampleF_internal(float *wavOut, int32_t sizeOut, int32_t outFreq, 
 						const float *wavIn, int32_t sizeIn, int32_t inFreq, int32_t cutoffFreq2,
 						int32_t numChannels, int32_t windowSize, double beta) {
@@ -404,74 +402,44 @@ void sinc_resampleF(float *wavOut, int32_t sizeOut, int32_t outFreq, const float
 		sinc_resampleF_internal(wavOut, sizeOut, outFreq, wavIn, sizeIn, inFreq, cutoffFreq2, numChannels, windowSize, beta);	
 }
 
-void swsResample16(swsBuffer16 in, swsBuffer16* out, int32_t freq, void* (*xmalloc)(size_t)) {
-	int32_t gcd = calc_gcd(freq, in.freq);
+void swsResampleSnd16(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
+	int32_t gcd = calc_gcd(freq, in->sampleRate);
 
-	if (xmalloc == NULL) xmalloc = malloc;
+	if (xm == NULL) xm = malloc;
 
-	out->size = in.size * (int64_t)(freq / gcd) / (int64_t)(in.freq / gcd);
-	out->samples = xmalloc(out->size);
-	out->freq = freq;
-	out->channels = in.channels;
-
-	sinc_resample16(out->samples, out->size, out->freq, in.samples, in.size, in.freq, in.channels);
-}
-
-void swsResampleF(swsBufferF in, swsBufferF* out, int32_t freq, void* (*xmalloc)(size_t)) {
-	int32_t gcd = calc_gcd(freq, in.freq);
-
-	if (xmalloc == NULL) xmalloc = malloc;
-
-	out->size = in.size * (int64_t)(freq / gcd) / (int64_t)(in.freq / gcd);
-	out->samples = xmalloc(out->size);
-	out->freq = freq;
-	out->channels = in.channels;
-
-	sinc_resampleF(out->samples, out->size, out->freq, in.samples, in.size, in.freq, in.channels);
-}
-
-#ifndef SWEEPS_NO_MWAV
-
-// just wrap around the sweeps buffer format
-void swsResampleSnd16(wavSound *in, wavSound* out, int32_t freq, void* (*xmalloc)(size_t)) {
-	swsBuffer16 bin;
-	swsBuffer16 bout;
-	bin.samples = (int16_t*)in->data.bytes;
-	bin.size = in->data.numBytes;
-	bin.freq = in->sampleRate;
-	bin.channels = in->channels;
-	swsResample16(bin, &bout, freq, xmalloc);
-	out->data.bytes = (uint8_t*)bout.samples;
-	out->data.numBytes = bout.size;
+	out->data.numBytes = in->data.numBytes * (int64_t)(freq / gcd) / (int64_t)(in->sampleRate / gcd);
+	out->data.bytes = xm(out->data.numBytes);
 	out->sampleRate = freq;
 	out->channels = in->channels;
 	out->bitsPerSample = 16;
+
+	sinc_resample16((int16_t*)out->data.bytes, out->data.numBytes, out->sampleRate, (int16_t*)in->data.bytes, 
+						in->data.numBytes, in->sampleRate, in->channels);
 }
 
-// just wrap around the sweeps buffer format
-void swsResampleSndF(wavSound *in, wavSound* out, int32_t freq, void* (*xmalloc)(size_t)) {
-	swsBufferF bin;
-	swsBufferF bout;
-	bin.samples = (float*)in->data.bytes;
-	bin.size = in->data.numBytes;
-	bin.freq = in->sampleRate;
-	bin.channels = in->channels;
-	swsResampleF(bin, &bout, freq, xmalloc);
-	out->data.bytes = (uint8_t*)bout.samples;
-	out->data.numBytes = bout.size;
+void swsResampleSndF(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
+	int32_t gcd = calc_gcd(freq, in->sampleRate);
+
+	if (xm == NULL) xm = malloc;
+
+	out->data.numBytes = in->data.numBytes * (int64_t)(freq / gcd) / (int64_t)(in->sampleRate / gcd);
+	out->data.bytes = xm(out->data.numBytes);
 	out->sampleRate = freq;
 	out->channels = in->channels;
 	out->bitsPerSample = in->bitsPerSample;
+
+	sinc_resampleF((float*)out->data.bytes, out->data.numBytes, out->sampleRate, (float*)in->data.bytes, 
+						in->data.numBytes, in->sampleRate, in->channels);
 }
 
-void swsResampleSnd(wavSound *in, wavSound* out, int32_t freq, void* (*xmalloc)(size_t)) {
+void swsResampleSnd(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
 	if (in->bitsPerSample == 24 || in->bitsPerSample == 32)
-		swsResampleSndF(in, out, freq, xmalloc);
+		swsResampleSndF(in, out, freq, xm);
 	else if (in->bitsPerSample == 16)
-		swsResampleSnd16(in, out, freq, xmalloc);
+		swsResampleSnd16(in, out, freq, xm);
 }
 
-void swsConvertSndF(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(size_t)) {
+void swsConvertSndF(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
 	int32_t samples = (in->data.numBytes >> 2) / in->channels;
 	int32_t c = in->channels;
 	float *inf = (float*)in->data.bytes;
@@ -481,7 +449,7 @@ void swsConvertSndF(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(
 		case 8:
 			out->bitsPerSample = 8;
 			out->data.numBytes = samples * c;
-			out->data.bytes = xmalloc(out->data.numBytes);
+			out->data.bytes = xm(out->data.numBytes);
 			samples *= c;
 			o8 = (uint8_t*)out->data.bytes;
 			while (samples--) *o8++ = (uint8_t)(((*inf++) + 1.0f) * 255.0f); 
@@ -489,14 +457,14 @@ void swsConvertSndF(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(
 		case 16:
 			out->bitsPerSample = 16;
 			out->data.numBytes = samples * c;
-			out->data.bytes = xmalloc(out->data.numBytes);
+			out->data.bytes = xm(out->data.numBytes);
 			o16 = (int16_t*)out->data.bytes;
 			samples *= c;
 			while (samples--) *o16++ = (int16_t)((*inf++) * 32767.0f);
 			break;
 		case 32:
 			out->bitsPerSample = 32;
-			out->data.bytes = xmalloc(out->data.numBytes);
+			out->data.bytes = xm(out->data.numBytes);
 			memcpy(out->data.bytes, in->data.bytes, in->data.numBytes);
 			break;
 	}
@@ -504,7 +472,7 @@ void swsConvertSndF(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(
 	out->channels = in->channels;
 }
 
-void swsConvertSnd16(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(size_t)) {
+void swsConvertSnd16(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
 	int32_t samples = (in->data.numBytes >> 2) / in->channels;
 	int32_t c = in->channels;
 	int16_t *in16 = (int16_t*)in->data.bytes;
@@ -514,20 +482,20 @@ void swsConvertSnd16(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)
 		case 8:
 			out->bitsPerSample = 16;
 			out->data.numBytes = (samples * c) << 1;
-			out->data.bytes = xmalloc(out->data.numBytes);
+			out->data.bytes = xm(out->data.numBytes);
 			o8 = (uint8_t*)out->data.bytes;
 			samples *= c;
 			while (samples--) *o8++ = (int8_t)(((float)(*in16++) / 256.0f) + 128.0f);			
 			break;
 		case 16:
 			out->bitsPerSample = 16;
-			out->data.bytes = xmalloc(out->data.numBytes);
+			out->data.bytes = xm(out->data.numBytes);
 			memcpy(out->data.bytes, in->data.bytes, in->data.numBytes);
 			break;
 		case 32:
 			out->bitsPerSample = 32;
 			out->data.numBytes = (samples * c) << 2;
-			out->data.bytes = xmalloc(out->data.numBytes);
+			out->data.bytes = xm(out->data.numBytes);
 			samples *= c;
 			oF = (float*)out->data.bytes;
 			while (samples--) *oF++ = (float)(*in16++) / 32768.0F; 			
@@ -537,7 +505,7 @@ void swsConvertSnd16(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)
 	out->channels = in->channels;		
 }
 
-void swsConvertSnd8(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(size_t)) {
+void swsConvertSnd8(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
 	int32_t samples = (in->data.numBytes >> 2) / in->channels;
 	int32_t c = in->channels;
 	uint8_t *in8 = in->data.bytes;
@@ -546,13 +514,13 @@ void swsConvertSnd8(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(
 	switch (bits) {
 		case 8:
 			out->bitsPerSample = 8;
-			out->data.bytes = xmalloc(out->data.numBytes);
+			out->data.bytes = xm(out->data.numBytes);
 			memcpy(out->data.bytes, in->data.bytes, in->data.numBytes);
 			break;
 		case 16:
 			out->bitsPerSample = 16;
 			out->data.numBytes = (samples * c) << 1;
-			out->data.bytes = xmalloc(out->data.numBytes);
+			out->data.bytes = xm(out->data.numBytes);
 			o16 = (int16_t*)out->data.bytes;
 			samples *= c;
 			while (samples--) *o16++ = (int16_t)(((float)(*in8++) - 128.0f) * 256.0f);
@@ -560,7 +528,7 @@ void swsConvertSnd8(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(
 		case 32:
 			out->bitsPerSample = 32;
 			out->data.numBytes = (samples * c) << 2;
-			out->data.bytes = xmalloc(out->data.numBytes);
+			out->data.bytes = xm(out->data.numBytes);
 			samples *= c;
 			oF = (float*)out->data.bytes;
 			while (samples--) *oF++ = ((float)(*in8++) / 127.0f) - 1.0f; 			
@@ -570,14 +538,13 @@ void swsConvertSnd8(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(
 	out->channels = in->channels;	
 }
 
-void swsConvertSnd(wavSound *in, wavSound* out, int32_t bits, void* (*xmalloc)(size_t)) {
-	if (xmalloc == NULL) xmalloc = malloc;
+void swsConvertSnd(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
+	if (xm == NULL) xm = malloc;
 	if (in->bitsPerSample == 32 || in->bitsPerSample == 24)
-		swsConvertSndF(in, out, bits, xmalloc);
+		swsConvertSndF(in, out, bits, xm);
 	else if (in->bitsPerSample == 16)
-		swsConvertSnd16(in, out, bits, xmalloc);
+		swsConvertSnd16(in, out, bits, xm);
 	else if (in->bitsPerSample == 8)
-		swsConvertSnd8(in, out, bits, xmalloc);
+		swsConvertSnd8(in, out, bits, xm);
 }
 
-#endif
