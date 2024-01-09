@@ -21,8 +21,6 @@
 #include <stdint.h>
 #include <string.h>
 
-#define WAV_USE_PHYSFS
-
 #ifdef WAV_USE_PHYSFS
 #include <physfs.h>
 #endif
