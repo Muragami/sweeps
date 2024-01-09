@@ -28,6 +28,16 @@
 	} wavSound;
 
 	typedef void* (*xmalloc)(size_t x);
+	typedef void (*xfatal)(const char *);
+
+	static void defaultFatal(const char *err) {
+		fputs(err, stderr);
+		exit(-1);
+	}
+
+	static xfatal wavFatal = defaultFatal;
+
+	static void __attribute__((unused)) setWavFatal(xfatal func) { wavFatal = func; }
 #endif
 
 void swsResampleSnd(wavSound *in, wavSound* out, int32_t freq, xmalloc xm);
