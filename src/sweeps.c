@@ -1,7 +1,7 @@
 /*
 	sweeps.c
 
-	Simple audio resampler
+	Simple audio resampler / convertor
 	
 	muragami, muragami@wishray.com, Jason A. Petrasko 2024
 	MIT license: https://opensource.org/license/mit/

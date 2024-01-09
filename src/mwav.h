@@ -3,8 +3,9 @@
 
 	Very basic .wav file load and save, supports:
 		* stdio
-		* memory blocks
 		* PHYSFS (if WAV_USE_PHYSFS is defined before inclusion)
+		* virtual io (look at wavVirtualIO struct to see how)
+		* memory blocks
 	
 	only accepts/handles:
 		8, 16, 24^, and 32^ bit PCM only
