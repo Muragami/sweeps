@@ -553,6 +553,7 @@ void swsResampleSnd8(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
 
 	out->data.numBytes = in->data.numBytes * (int64_t)(freq / gcd) / (int64_t)(in->sampleRate / gcd);
 	out->data.bytes = xm(out->data.numBytes);
+	if (out->data.bytes == NULL) wavFatal("swsResampleSnd8() allocation failure");
 	out->sampleRate = freq;
 	out->channels = in->channels;
 	out->bitsPerSample = 8;
@@ -568,6 +569,7 @@ void swsResampleSnd16(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
 
 	out->data.numBytes = in->data.numBytes * (int64_t)(freq / gcd) / (int64_t)(in->sampleRate / gcd);
 	out->data.bytes = xm(out->data.numBytes);
+	if (out->data.bytes == NULL) wavFatal("swsResampleSnd16() allocation failure");
 	out->sampleRate = freq;
 	out->channels = in->channels;
 	out->bitsPerSample = 16;
@@ -583,6 +585,7 @@ void swsResampleSndF(wavSound *in, wavSound* out, int32_t freq, xmalloc xm) {
 
 	out->data.numBytes = in->data.numBytes * (int64_t)(freq / gcd) / (int64_t)(in->sampleRate / gcd);
 	out->data.bytes = xm(out->data.numBytes);
+	if (out->data.bytes == NULL) wavFatal("swsResampleSndF() allocation failure");
 	out->sampleRate = freq;
 	out->channels = in->channels;
 	out->bitsPerSample = in->bitsPerSample;
@@ -617,6 +620,7 @@ void swsConvertSndF(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
 			out->bitsPerSample = 8;
 			out->data.numBytes = samples * c;
 			out->data.bytes = xm(out->data.numBytes);
+			if (out->data.bytes == NULL) wavFatal("swsConvertSndF() allocation failure (8)");
 			samples *= c;
 			o8 = (uint8_t*)out->data.bytes;
 			while (samples--) *o8++ = (uint8_t)(((*inf++) + 1.0f) * 255.0f); 
@@ -625,13 +629,16 @@ void swsConvertSndF(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
 			out->bitsPerSample = 16;
 			out->data.numBytes = samples * c;
 			out->data.bytes = xm(out->data.numBytes);
+			if (out->data.bytes == NULL) wavFatal("swsConvertSndF() allocation failure (16)");
 			o16 = (int16_t*)out->data.bytes;
 			samples *= c;
 			while (samples--) *o16++ = (int16_t)((*inf++) * 32767.0f);
 			break;
+		case 24:
 		case 32:
-			out->bitsPerSample = 32;
+			out->bitsPerSample = bits;
 			out->data.bytes = xm(out->data.numBytes);
+			if (out->data.bytes == NULL) wavFatal("swsConvertSndF() allocation failure (F)");
 			memcpy(out->data.bytes, in->data.bytes, in->data.numBytes);
 			break;
 	}
@@ -650,6 +657,7 @@ void swsConvertSnd16(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
 			out->bitsPerSample = 16;
 			out->data.numBytes = (samples * c) << 1;
 			out->data.bytes = xm(out->data.numBytes);
+			if (out->data.bytes == NULL) wavFatal("swsConvertSnd16() allocation failure (8)");
 			o8 = (uint8_t*)out->data.bytes;
 			samples *= c;
 			while (samples--) *o8++ = (int8_t)(((float)(*in16++) / 256.0f) + 128.0f);			
@@ -657,12 +665,15 @@ void swsConvertSnd16(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
 		case 16:
 			out->bitsPerSample = 16;
 			out->data.bytes = xm(out->data.numBytes);
+			if (out->data.bytes == NULL) wavFatal("swsConvertSnd16() allocation failure (16)");
 			memcpy(out->data.bytes, in->data.bytes, in->data.numBytes);
 			break;
+		case 24:
 		case 32:
-			out->bitsPerSample = 32;
+			out->bitsPerSample = bits;
 			out->data.numBytes = (samples * c) << 2;
 			out->data.bytes = xm(out->data.numBytes);
+			if (out->data.bytes == NULL) wavFatal("swsConvertSnd16() allocation failure (F)");
 			samples *= c;
 			oF = (float*)out->data.bytes;
 			while (samples--) *oF++ = (float)(*in16++) / 32768.0F; 			
@@ -682,20 +693,24 @@ void swsConvertSnd8(wavSound *in, wavSound* out, int32_t bits, xmalloc xm) {
 		case 8:
 			out->bitsPerSample = 8;
 			out->data.bytes = xm(out->data.numBytes);
+			if (out->data.bytes == NULL) wavFatal("swsConvertSnd8() allocation failure (8)");
 			memcpy(out->data.bytes, in->data.bytes, in->data.numBytes);
 			break;
 		case 16:
 			out->bitsPerSample = 16;
 			out->data.numBytes = (samples * c) << 1;
 			out->data.bytes = xm(out->data.numBytes);
+			if (out->data.bytes == NULL) wavFatal("swsConvertSnd8() allocation failure (16)");
 			o16 = (int16_t*)out->data.bytes;
 			samples *= c;
 			while (samples--) *o16++ = (int16_t)(((float)(*in8++) - 128.0f) * 256.0f);
 			break;
+		case 24:
 		case 32:
-			out->bitsPerSample = 32;
+			out->bitsPerSample = bits;
 			out->data.numBytes = (samples * c) << 2;
 			out->data.bytes = xm(out->data.numBytes);
+			if (out->data.bytes == NULL) wavFatal("swsConvertSnd8() allocation failure (F)");
 			samples *= c;
 			oF = (float*)out->data.bytes;
 			while (samples--) *oF++ = ((float)(*in8++) / 127.0f) - 1.0f; 			
