@@ -83,6 +83,17 @@ typedef struct _wavConvertBuffer32 {
 
 typedef void* (*xmalloc)(size_t x);
 
+typedef void (*xfatal)(const char *);
+
+static void defaultFatal(const char *err) {
+		fputs(err, stderr);
+		exit(-1);
+	}
+
+static xfatal wavFatal = defaultFatal;
+
+static void __attribute__((unused)) setWavFatal(xfatal func) { wavFatal = func; }
+
 typedef struct _wavVirtualIO {
 	void *user;
 	int64_t (*write)(void*, void*, uint64_t);
@@ -286,6 +297,7 @@ static const char* __attribute__((unused)) wavLoadFile(wavVirtualIO *io, wavSoun
 			if (snd->bitsPerSample == 24) {
 				snd->data.numBytes = (uint64_t)chunkHeader.size * 4ll / 3ll;
 				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
+				if (snd->data.bytes == NULL) WAV_FAILS("Failed on data allocation.")
 				float *f = (float*)snd->data.bytes;
 				wavConvertBuffer b;
 				while (chunkHeader.size > 0) {
@@ -302,6 +314,7 @@ static const char* __attribute__((unused)) wavLoadFile(wavVirtualIO *io, wavSoun
 			} else if (snd->bitsPerSample == 32) {
 				snd->data.numBytes = chunkHeader.size;
 				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
+				if (snd->data.bytes == NULL) WAV_FAILS("Failed on data allocation.")
 				float *f = (float*)snd->data.bytes;
 				wavConvertBuffer32 b;
 				while (chunkHeader.size > 0) {
@@ -317,6 +330,7 @@ static const char* __attribute__((unused)) wavLoadFile(wavVirtualIO *io, wavSoun
 				}				
 			} else {
 				snd->data.bytes = (unsigned char *)xm(chunkHeader.size);
+				if (snd->data.bytes == NULL) WAV_FAILS("Failed on data allocation.")
 				chunkHeader.size = io->read(io->user, snd->data.bytes, chunkHeader.size);
 				snd->data.numBytes = chunkHeader.size;	
 			}
@@ -345,7 +359,7 @@ static const char* __attribute__((unused)) wavSaveMemory(const char *filename, w
 
 	if (xm == NULL) xm = malloc;
 	out->bytes = (uint8_t*)xm(sizeof(head) + dataSize);
-	if (out->bytes == NULL) return "xmalloc() allocation failed";
+	if (out->bytes == NULL) return "Failed on data allocation.";
 	out->numBytes = sizeof(head) + snd->data.numBytes;
 
 	WRITE_FOURCC(head.riffHeader.id, "RIFF");
@@ -450,6 +464,7 @@ static const char* __attribute__((unused)) wavLoadMemory(wavData *in, wavSound *
 			if (snd->bitsPerSample == 24) {
 				snd->data.numBytes = (uint64_t)pHeader->size * 4ll / 3ll;
 				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
+				if (snd->data.bytes == NULL) WAV_FAILS("Failed on data allocation.")
 				float *f = (float*)snd->data.bytes;
 				wavConvertBuffer b;
 				while (pHeader->size > 0) {
@@ -468,6 +483,7 @@ static const char* __attribute__((unused)) wavLoadMemory(wavData *in, wavSound *
 			} else if (snd->bitsPerSample == 32) {
 				snd->data.numBytes = pHeader->size;
 				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
+				if (snd->data.bytes == NULL) WAV_FAILS("Failed on data allocation.")
 				float *f = (float*)snd->data.bytes;
 				wavConvertBuffer32 b;
 				while (pHeader->size > 0) {
@@ -486,6 +502,7 @@ static const char* __attribute__((unused)) wavLoadMemory(wavData *in, wavSound *
 			} else {
 				if (mpos + pHeader->size > in->numBytes) WAV_FAILS("File to read data.")
 				snd->data.bytes = (unsigned char *)xm(pHeader->size);
+				if (snd->data.bytes == NULL) WAV_FAILS("Failed on data allocation.")
 				memcpy(snd->data.bytes, in->bytes + mpos, pHeader->size);
 				snd->data.numBytes = pHeader->size;
 				mpos += pHeader->size;	
