@@ -250,9 +250,16 @@ ferr:
 
 static const char* __attribute__((unused)) wavSaveMemory(const char *filename, wavSound *snd, wavData *out, xmalloc xm) {
 	wavSaveHeader head;
+	uint32_t dataSize;
+	int32_t odd = (snd->data.numBytes / (4 * snd->channels) * (snd->bitsPerSample >> 3) * snd->channels) % 2 > 0;
+
+	if (snd->bitsPerSample == 24) 
+		dataSize = odd + (uint64_t)snd->data.numBytes * 3ll / 4ll;
+	 else 
+	 	dataSize = snd->data.numBytes;
 
 	if (xm == NULL) xm = malloc;
-	out->bytes = (uint8_t*)xm(sizeof(head) + snd->data.numBytes);
+	out->bytes = (uint8_t*)xm(sizeof(head) + dataSize);
 	if (out->bytes == NULL) return "xmalloc() allocation failed";
 	out->numBytes = sizeof(head) + snd->data.numBytes;
 
@@ -266,15 +273,56 @@ static const char* __attribute__((unused)) wavSaveMemory(const char *filename, w
 	head.fmt_Data.channels = snd->channels;
 	head.fmt_Data.sampleRate = snd->sampleRate;
 	head.fmt_Data.avgBytesPerSec = snd->sampleRate * snd->channels * snd->bitsPerSample / 8;
-	head.fmt_Data.blockAlign = snd->bitsPerSample / 2;
+	head.fmt_Data.blockAlign = (snd->bitsPerSample >> 3) * snd->channels;
 	head.fmt_Data.bitsPerSample = snd->bitsPerSample;
 
 	WRITE_FOURCC(head.dataHeader.id, "data");
-	head.dataHeader.size = snd->data.numBytes;
-
+	head.dataHeader.size = dataSize;
+	
 	memcpy(out->bytes, &head, sizeof(head));
-	memcpy(out->bytes + sizeof(head), snd->data.bytes, snd->data.numBytes);
-
+	uint8_t *p = out->bytes + sizeof(head);
+	if (snd->bitsPerSample == 24) {
+		wavConvertBuffer b;
+		uint32_t samples = snd->data.numBytes >> 2;
+		float *f = (float*)snd->data.bytes;
+		while (samples > 0) {
+			int32_t cnt;
+			if (samples > CBUFFER_CNT) cnt = CBUFFER_CNT;
+			 else cnt = samples;
+			for (int i = 0; i < cnt; i++) {
+				int32_t v = (*f * 2147483648.0f);
+				b.c[i * 3] = (v & 0xFF00) >> 8;
+				b.c[i * 3 + 1] = (v & 0xFF0000) >> 16;
+				b.c[i * 3 + 2] = (v & 0xFF000000) >> 24;
+				f++;
+			}
+			samples -= cnt;
+			memcpy(p, b.c, cnt * 3);
+			p += cnt *3;
+		}
+		// uneven bytes written? add one null
+		if (odd) *p = 0;
+	} else if (snd->bitsPerSample == 32) {
+		wavConvertBuffer b;
+		uint32_t samples = snd->data.numBytes >> 2;
+		float *f = (float*)snd->data.bytes;
+		while (samples > 0) {
+			int32_t cnt;
+			if (samples > CBUFFER_CNT) cnt = CBUFFER_CNT;
+			 else cnt = samples;
+			for (int i = 0; i < cnt; i++) {
+				int32_t v = (*f * 2147483648.0f);
+				memcpy(b.c + i * 4, &v, 4);
+				f++;
+			}
+			samples -= cnt;
+			memcpy(p, b.c, cnt * 3);
+			p += cnt *3;
+		}
+	} else {
+		memcpy(p, snd->data.bytes, snd->data.numBytes);
+	}
+	
 	return NULL;
 }
 
@@ -305,20 +353,58 @@ static const char* __attribute__((unused)) wavLoadMemory(wavData *in, wavSound *
 			if (pHeader->size < sizeof(wavFmtData)) WAV_FAILS("Badly formatted 'fmt ' chunk")
 			if (mpos + sizeof(wavChunkHeader) > in->numBytes) WAV_FAILS("Failed to read 'fmt_' chunk")
 			pFmt = (wavFmtData*)in->bytes + mpos;
-			mpos += sizeof(wavFmtData);
-			if (!(pFmt->formatTag == 1 || pFmt->formatTag == 3)) WAV_FAILS("File is not PCM")
-			if (pFmt->formatTag == 3 && pFmt->bitsPerSample != 32) WAV_FAILS("File is not 32-bit floating point.")
-			if (pFmt->formatTag == 1 && pFmt->bitsPerSample > 16) WAV_FAILS("File is not 8 or 16-bit PCM.")
+			mpos += pHeader->size;
+			if (pFmt->formatTag != 1) WAV_FAILS("File is not PCM")
+			if (!(pFmt->bitsPerSample == 16 || pFmt->bitsPerSample == 8 || pFmt->bitsPerSample == 24
+				|| pFmt->bitsPerSample == 32)) WAV_FAILS("File is unsupported bits per sample.")
 			snd->channels = pFmt->channels;
 			snd->sampleRate = pFmt->sampleRate;
 			snd->bitsPerSample = pFmt->bitsPerSample;
 		} else if (MATCH_FOURCC(pHeader->id, "data"))
 		{
-			if (mpos + pHeader->size > in->numBytes) WAV_FAILS("File data is not properly sized")
-			snd->data.bytes = (unsigned char *)xm(pHeader->size);
-			memcpy(snd->data.bytes, in->bytes + mpos, pHeader->size);
-			snd->data.numBytes = pHeader->size;
-			mpos += pHeader->size;
+			if (snd->bitsPerSample == 24) {
+				snd->data.numBytes = (uint64_t)pHeader->size * 4ll / 3ll;
+				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
+				float *f = (float*)snd->data.bytes;
+				wavConvertBuffer b;
+				while (pHeader->size > 0) {
+					int cnt;
+					if (pHeader->size > CBUFFER_BYTES) cnt = CBUFFER_BYTES;
+					 else cnt = pHeader->size;
+					if (mpos + cnt > in->numBytes) WAV_FAILS("Failed to read data.")
+					memcpy(b.c, in->bytes + mpos, cnt);
+					mpos += cnt;
+					for (int i = 0; i < cnt / 3; i++) {
+						*f = ((b.c[i * 3] << 8) + (b.c[i * 3 + 1] << 16) + (b.c[i * 3 + 2] << 24)) / 2147483648.0f;
+						f++;
+					}
+					pHeader->size -= cnt;
+				}
+			} else if (snd->bitsPerSample == 32) {
+				snd->data.numBytes = pHeader->size;
+				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
+				float *f = (float*)snd->data.bytes;
+				wavConvertBuffer32 b;
+				while (pHeader->size > 0) {
+					int cnt;
+					if (pHeader->size > CBUFFER_MBYTES) cnt = CBUFFER_MBYTES;
+					 else cnt = pHeader->size;
+					if (mpos + cnt > in->numBytes) WAV_FAILS("Failed to read data.")
+					memcpy(b.c, in->bytes + mpos, cnt);
+					mpos += cnt;
+					for (int i = 0; i < cnt / 4; i++) {
+						*f = (float)b.c[i] / 2147483648.0f;
+						f++;
+					}
+					pHeader->size -= cnt;
+				}				
+			} else {
+				if (mpos + pHeader->size > in->numBytes) WAV_FAILS("File to read data.")
+				snd->data.bytes = (unsigned char *)xm(pHeader->size);
+				memcpy(snd->data.bytes, in->bytes + mpos, pHeader->size);
+				snd->data.numBytes = pHeader->size;
+				mpos += pHeader->size;	
+			}
 		}
 	}
 
@@ -346,16 +432,57 @@ static const char* __attribute__((unused)) wavSavePFile(const char *filename, wa
 	head.fmt_Data.channels = snd->channels;
 	head.fmt_Data.sampleRate = snd->sampleRate;
 	head.fmt_Data.avgBytesPerSec = snd->sampleRate * snd->channels * snd->bitsPerSample / 8;
-	head.fmt_Data.blockAlign = snd->bitsPerSample / 2;
+	head.fmt_Data.blockAlign = (snd->bitsPerSample >> 3) * snd->channels;
 	head.fmt_Data.bitsPerSample = snd->bitsPerSample;
 
 	WRITE_FOURCC(head.dataHeader.id, "data");
-	head.dataHeader.size = snd->data.numBytes;
+	if (snd->bitsPerSample == 24) 
+		head.dataHeader.size = (uint64_t)snd->data.numBytes * 3ll / 4ll;
+	 else 
+	 	head.dataHeader.size = snd->data.numBytes;
 
 	if (!(pfp = PHYSFS_openWrite(filename))) WAV_FAIL("Failed to open file")
 	if (PHYSFS_writeBytes(pfp, &head, sizeof(head)) != sizeof(head)) WAV_FAIL("Failed to write header")
-	if (PHYSFS_writeBytes(pfp, snd->data.bytes, snd->data.numBytes) != snd->data.numBytes) WAV_FAIL("Failed to write data")
-	
+	if (snd->bitsPerSample == 24) {
+		wavConvertBuffer b;
+		uint32_t samples = snd->data.numBytes >> 2;
+		float *f = (float*)snd->data.bytes;
+		while (samples > 0) {
+			int32_t cnt;
+			if (samples > CBUFFER_CNT) cnt = CBUFFER_CNT;
+			 else cnt = samples;
+			for (int i = 0; i < cnt; i++) {
+				int32_t v = (*f * 2147483648.0f);
+				b.c[i * 3] = (v & 0xFF00) >> 8;
+				b.c[i * 3 + 1] = (v & 0xFF0000) >> 16;
+				b.c[i * 3 + 2] = (v & 0xFF000000) >> 24;
+				f++;
+			}
+			samples -= cnt;
+			if (PHYSFS_writeBytes(pfp, b.c, cnt * 3) != cnt * 3) WAV_FAIL("Failed to write data")
+		}
+		// uneven bytes written? add one null
+		if ((snd->data.numBytes / (4 * snd->channels) * (snd->bitsPerSample >> 3) * snd->channels) % 2 > 0)
+			fputc('\000', fp);
+	} else if (snd->bitsPerSample == 32) {
+		wavConvertBuffer b;
+		uint32_t samples = snd->data.numBytes >> 2;
+		float *f = (float*)snd->data.bytes;
+		while (samples > 0) {
+			int32_t cnt;
+			if (samples > CBUFFER_CNT) cnt = CBUFFER_CNT;
+			 else cnt = samples;
+			for (int i = 0; i < cnt; i++) {
+				int32_t v = (*f * 2147483648.0f);
+				memcpy(b.c + i * 4, &v, 4);
+				f++;
+			}
+			samples -= cnt;
+			if (PHYSFS_writeBytes(pfp, b.c, cnt * 4) != cnt * 4) WAV_FAIL("Failed to write data")
+		}
+	} else {
+		if (PHYSFS_writeBytes(pfp, snd->data.bytes, snd->data.numBytes) != snd->data.numBytes) WAV_FAIL("Failed to write data")
+	}
 	PHYSFS_close(pfp);
 	return err;
 
@@ -390,17 +517,52 @@ static const char* __attribute__((unused)) wavLoadPFile(const char *filename, wa
 
 			if (chunkHeader.size < sizeof(fmtData)) WAV_FAIL("Badly formatted 'fmt ' chunk")
 			if (PHYSFS_readBytes(pfp, &fmtData, sizeof(fmtData)) != sizeof(fmtData)) WAV_FAIL("Failed to read 'fmt_' chunk")
-			if (!(fmtData.formatTag == 1 || fmtData.formatTag == 3)) WAV_FAIL("File is not PCM")
-			if (fmtData.formatTag == 3 && fmtData.bitsPerSample != 32) WAV_FAIL("File is not 32-bit floating point.")
-			if (fmtData.formatTag == 1 && fmtData.bitsPerSample > 16) WAV_FAIL("File is not 8 or 16-bit PCM.")
+			if (fmtData.formatTag != 1) WAV_FAIL("File is not PCM")
+			if (!(fmtData.bitsPerSample == 16 || fmtData.bitsPerSample == 8 || fmtData.bitsPerSample == 24
+				|| fmtData.bitsPerSample == 32)) WAV_FAIL("File is unsupported bits per sample.")
+			snd->channels = fmtData.channels;
 			snd->channels = fmtData.channels;
 			snd->sampleRate = fmtData.sampleRate;
 			snd->bitsPerSample = fmtData.bitsPerSample;
 		} else if (MATCH_FOURCC(chunkHeader.id, "data"))
 		{
-			snd->data.bytes = (unsigned char *)xm(chunkHeader.size);
-			chunkHeader.size = PHYSFS_readBytes(pfp, snd->data.bytes, chunkHeader.size);
-			snd->data.numBytes = chunkHeader.size;
+			if (snd->bitsPerSample == 24) {
+				snd->data.numBytes = (uint64_t)chunkHeader.size * 4ll / 3ll;
+				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
+				float *f = (float*)snd->data.bytes;
+				wavConvertBuffer b;
+				while (chunkHeader.size > 0) {
+					int cnt;
+					if (chunkHeader.size > CBUFFER_BYTES) cnt = CBUFFER_BYTES;
+					 else cnt = chunkHeader.size;
+					if (PHYSFS_readBytes(pfp, b.c, cnt) != cnt) WAV_FAIL("Failed to read data.")
+					for (int i = 0; i < cnt / 3; i++) {
+						*f = ((b.c[i * 3] << 8) + (b.c[i * 3 + 1] << 16) + (b.c[i * 3 + 2] << 24)) / 2147483648.0f;
+						f++;
+					}
+					chunkHeader.size -= cnt;
+				}
+			} else if (snd->bitsPerSample == 32) {
+				snd->data.numBytes = chunkHeader.size;
+				snd->data.bytes = (uint8_t *)xm(snd->data.numBytes);
+				float *f = (float*)snd->data.bytes;
+				wavConvertBuffer32 b;
+				while (chunkHeader.size > 0) {
+					int cnt;
+					if (chunkHeader.size > CBUFFER_MBYTES) cnt = CBUFFER_MBYTES;
+					 else cnt = chunkHeader.size;
+					if (PHYSFS_readBytes(pfp, b.c, cnt) != cnt) WAV_FAIL("Failed to read data.")
+					for (int i = 0; i < cnt / 4; i++) {
+						*f = (float)b.c[i] / 2147483648.0f;
+						f++;
+					}
+					chunkHeader.size -= cnt;
+				}				
+			} else {
+				snd->data.bytes = (unsigned char *)xm(chunkHeader.size);
+				chunkHeader.size = PHYSFS_readBytes(pfp, snd->data.bytes, chunkHeader.size);
+				snd->data.numBytes = chunkHeader.size;	
+			}
 		}
 
 		PHYSFS_seek(pfp, endPos);
