@@ -19,12 +19,13 @@ double getTime() {
 	return (double)t.tv_sec + (double)t.tv_nsec * 0.000000001;
 }
 
-
 int main(int argc, const char **argv) {
 	wavVirtualIO io;
 	wavSound wIn;
 	wavSound wOut;
+	wavSound wOutC;
 	int32_t freq;
+	int32_t tbits;
 	double samples;
 	double start;
 	double stop;
@@ -63,9 +64,45 @@ int main(int argc, const char **argv) {
 			printf("error writing '%s': %s", argv[2], e);
 			return -1;
 		}
-		
 	} else if (argc == 5) {
-		// TODO
+		wavioFileOpenRead(&io, argv[1]);
+		e = wavLoadFile(&io, &wIn, NULL);
+		wavioFileClose(&io);
+		if (e != NULL) {
+			printf("error loading '%s': %s", argv[1], e);
+			return -1;
+		}
+		freq = atoi(argv[3]);
+		if (freq < 8000) {
+			printf("invalid frequency: %s", argv[3]);
+			return -1;
+		}
+		if (wIn.bitsPerSample == 24) 
+			samples = (double)wIn.data.numBytes / (double)(wIn.channels * 4);
+		 else 
+			samples = (double)wIn.data.numBytes / (double)(wIn.channels * (wIn.bitsPerSample >> 3));
+		len = samples / (double)wIn.sampleRate;
+		printf("converting %.0f samples (%.2f seconds).\n", samples, len);
+		start = getTime();
+		swsResampleSnd(&wIn, &wOut, freq, NULL);
+		stop = getTime();
+		printf("complete.\n");
+		printf("conversion from %d[%d] to %d[%d] in %.2g seconds.\n", wIn.sampleRate, wIn.channels, wOut.sampleRate, wOut.channels, stop - start);
+		printf("\t%.2fx realtime.\n", len / (stop - start));
+		// now convert the data to the proper bits
+		tbits = atoi(argv[4]);
+		if (!(tbits == 8 || tbits == 16 || tbits == 24 || tbits == 32)) {
+			printf("invalid target bits: %s", argv[4]);
+			return -1;
+		}
+		swsConvertSnd(&wOut, &wOutC, tbits, NULL);
+		wavioFileOpenWrite(&io, argv[2]);
+		e = wavSaveFile(&io, &wOutC);
+		wavioFileClose(&io);
+		if (e != NULL) {
+			printf("error writing '%s': %s", argv[2], e);
+			return -1;
+		}
 	} else {
 		printf("usage:\n");
 		printf("\tsweeps <wave_file> <out_file> <new_freq>\n");
