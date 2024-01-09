@@ -21,6 +21,7 @@ double getTime() {
 
 
 int main(int argc, const char **argv) {
+	wavVirtualIO io;
 	wavSound wIn;
 	wavSound wOut;
 	int32_t freq;
@@ -31,7 +32,9 @@ int main(int argc, const char **argv) {
 	const char *e;
 
 	if (argc == 4) {
-		e = wavLoadFile(argv[1], &wIn, NULL);
+		wavioFileOpenRead(&io, argv[1]);
+		e = wavLoadFile(&io, &wIn, NULL);
+		wavioFileClose(&io);
 		if (e != NULL) {
 			printf("error loading '%s': %s", argv[1], e);
 			return -1;
@@ -53,7 +56,9 @@ int main(int argc, const char **argv) {
 		printf("complete.\n");
 		printf("conversion from %d[%d] to %d[%d] in %.2g seconds.\n", wIn.sampleRate, wIn.channels, wOut.sampleRate, wOut.channels, stop - start);
 		printf("\t%.2fx realtime.\n", len / (stop - start));
-		e = wavSaveFile(argv[2], &wOut);
+		wavioFileOpenWrite(&io, argv[2]);
+		e = wavSaveFile(&io, &wOut);
+		wavioFileClose(&io);
 		if (e != NULL) {
 			printf("error writing '%s': %s", argv[2], e);
 			return -1;
