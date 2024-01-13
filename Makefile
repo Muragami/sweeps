@@ -32,7 +32,6 @@ CXX := clang++
 #universal cfg
 SRC_DIRS := ./src
 SRCS := $(shell find $(SRC_DIRS) -name *.cpp -or -name *.c -or -name *.s)
-TXTS := $(shell find $(SRC_DIRS) -name *.wren)
 DEPS := $(OBJS:.o=.d)
 INC_DIRS := $(shell find $(SRC_DIRS) -type d)
 INC_FLAGS := $(addprefix -I,$(INC_DIRS)) -I./include
