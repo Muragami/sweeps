@@ -24,7 +24,7 @@ The mwav.h header supports PHYSFS, if you define WAV_USE_PHYSFS before including
 You can remove the wav stuff entirely by defining SWEEPS_NO_MWAV before including the header.
 
 # todo
-Everything works with minimal testing, I should make a unit test for it robustly. Also I want to support resampling of streams, passing in buffer chunks, so that's on the list. That is about it.
+Everything works with minimal testing, I should make a unit test for it robustly. Also I want to support resampling of streams, passing in buffer chunks, so that's on the list. That is about it. Looking at the style of the resampler, making it support streaming should not be too difficult.
 
 # glitchXX.wav
 This little sample audio is from wikimedia commons: [glitch](https://commons.wikimedia.org/wiki/File:Audionautix-com-ccby-glitch.mp3)
